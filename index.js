@@ -42,46 +42,53 @@ module.exports = class Autochannel extends Readable {
     let lseq = 0
     let rseq = 0
 
-    const init = this.initiator.createReadStream({ live: true })
-    const resp = this.responder.createReadStream({ live: true })
+    const init = this.initiator.createReadStream({ live: true }) // left
+    const resp = this.responder.createReadStream({ live: true }) // right
 
+    let left = null
     let pendingCommitment = null
 
-    let i = null
     for await (const data of resp) {
       this.pending.push(({ data, seq: rseq++ }))
 
-      if (!i) {
-        i = init.read()
-        if (i === null) continue
+      if (!left) {
+        left = init.read()
+
+        // no initiator messages
+        if (left === null) continue
+
         lseq++
       }
 
+      // check if initiator has seen pending blocks
       while (this.pending.length) {
-        if (i.remoteLength <= this.pending[0].seq) break
+        if (left.remoteLength <= this.pending[0].seq) break
         this.batch.push(this.pending.shift().data) // use FIFO
       }
 
-      while (i.remoteLength <= rseq) {
-        if (i.commitment) pendingCommitment = i
+      // catch up on initiators feed
+      while (left.remoteLength <= rseq) {
+        if (left.commitment) pendingCommitment = left
 
-        this.batch.push(i)
-        i = init.read()
-        if (i === null) break
+        this.batch.push(left)
+        left = init.read()
+        if (left === null) break
 
         lseq++
       }
 
+      // check for cosignature
       if (pendingCommitment) {
         pendingCommitment = null
+
+        // currently only valid if the cosign is immediate
         if (data.remoteLength - 1 !== lseq && data.commitment) {
+          // push all confirmed blocks
           while (this.batch.length) {
             this.push(this.batch.shift()) //use FIFO
           }
         }
       }
-
-      if (i !== null) this.batch.push(data)
     }
   }
 

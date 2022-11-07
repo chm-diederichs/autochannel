@@ -12,8 +12,8 @@ module.exports = class Autochannel extends Readable {
     this.initiator = this.isInitiator ? local : remote
     this.responder = this.isInitiator ? remote : local
 
-    this.initiatorBatch = []
-    this.responderBatch = []
+    this.batch = []
+    this.pending = []
 
     this.prev = {
       initiator: 0,
@@ -45,15 +45,43 @@ module.exports = class Autochannel extends Readable {
     const init = this.initiator.createReadStream({ live: true })
     const resp = this.responder.createReadStream({ live: true })
 
-    init.on('data', onInitiator.bind(this))
+    let pendingCommitment = null
 
+    let i = null
     for await (const data of resp) {
-      this.responderBatch.push({ data, seq: rseq++ })
-      this.process()
-    }
+      this.pending.push(({ data, seq: rseq++ }))
 
-    function onInitiator (data) {
-      this.initiatorBatch.push({ data, seq: lseq++ })
+      if (!i) {
+        i = init.read()
+        if (i === null) continue
+        lseq++
+      }
+
+      while (this.pending.length) {
+        if (i.remoteLength <= this.pending[0].seq) break
+        this.batch.push(this.pending.shift().data) // use FIFO
+      }
+
+      while (i.remoteLength <= rseq) {
+        if (i.commitment) pendingCommitment = i
+
+        this.batch.push(i)
+        i = init.read()
+        if (i === null) break
+
+        lseq++
+      }
+
+      if (pendingCommitment) {
+        pendingCommitment = null
+        if (data.remoteLength - 1 !== lseq && data.commitment) {
+          while (this.batch.length) {
+            this.push(this.batch.shift()) //use FIFO
+          }
+        }
+      }
+
+      if (i !== null) this.batch.push(data)
     }
   }
 
@@ -67,59 +95,5 @@ module.exports = class Autochannel extends Readable {
     }
 
     return this.local.append(entry)
-  }
-
-  process () {
-    const resp = this.responderBatch[Symbol.iterator]()
-    const init = this.initiatorBatch[Symbol.iterator]()
-
-    let icount = 0
-    let rcount = 0
-
-    let r = resp.next()
-
-    // implies no cosignatures
-    if (r.done) return
-
-    let pendingCommitment = null
-    const batch = []
-
-    for (const l of init) {
-      icount++
-
-      if (r.value.seq >= l.data.remoteLength - 1) {
-        batch.push(l)
-
-        if (l.data.commitment) {
-          pendingCommitment = l
-        } else {
-          continue
-        }
-      }
-
-      // protocol dictates that commitment immediately follows
-      if (pendingCommitment) {
-        pendingCommitment = null
-
-        if (r.value.data.remoteLength - 1 === l.seq && r.value.data.commitment) {
-          while (batch.length) {
-            this.push(batch.shift())
-          }
-
-          this.initiatorBatch = this.initiatorBatch.slice(icount)
-          this.responderBatch = this.responderBatch.slice(rcount)
-
-          return this.process()
-        }
-      }
-
-      // keep looping until we reach head
-      while (!r.done && r.value.data.remoteLength <= l.seq + 1) {
-        rcount++
-
-        r = resp.next()
-        batch.push(r.value)
-      }
-    }
   }
 }

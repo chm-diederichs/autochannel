@@ -1,0 +1,24 @@
+{
+  "name": "autochannel",
+  "version": "0.0.0",
+  "description": "Event log shared betweeen two peers with deterministic references",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx standard && node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chm-diederichs/autochannel.git"
+  },
+  "author": "chm-diederichs",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/chm-diederichs/autochannel/issues"
+  },
+  "homepage": "https://github.com/chm-diederichs/autochannel#readme",
+  "devDependencies": {
+    "hypercore": "^10.4.1",
+    "random-access-memory": "^6.0.0",
+    "standard": "^16.0.4"
+  }
+}

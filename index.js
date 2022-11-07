@@ -1,5 +1,9 @@
-module.exports = class Autochannel {
+const { Readable } = require('streamx')
+
+module.exports = class Autochannel extends Readable {
   constructor (local, remote, opts = {}) {
+    super(opts)
+
     this.local = local
     this.remote = remote
 
@@ -7,6 +11,9 @@ module.exports = class Autochannel {
 
     this.initiator = this.isInitiator ? local : remote
     this.responder = this.isInitiator ? remote : local
+
+    this.initiatorBatch = []
+    this.responderBatch = []
 
     this.prev = {
       initiator: 0,
@@ -19,7 +26,38 @@ module.exports = class Autochannel {
     await this.remote.ready()
   }
 
-  async append (op, commitment = this.isInitiator) {
+  _open (cb) {
+    this._openp().then(() => {
+      console.log('done')
+      cb()
+    }, cb)
+  }
+
+  async _openp () {
+    await this.ready()
+    this.start()
+  }
+
+  async start () {
+    let lseq = 0
+    let rseq = 0
+
+    const init = this.initiator.createReadStream({ live: true })
+    const resp = this.responder.createReadStream({ live: true })
+
+    init.on('data', onInitiator.bind(this))
+
+    for await (const data of resp) {
+      this.responderBatch.push({ data, seq: rseq++ })
+      this.process()
+    }
+
+    function onInitiator (data) {
+      this.initiatorBatch.push({ data, seq: lseq++ })
+    }
+  }
+
+  async append (op, commitment) {
     const remoteLength = this.remote.length
 
     const entry = {
@@ -31,127 +69,56 @@ module.exports = class Autochannel {
     return this.local.append(entry)
   }
 
-  async * accepted () {
-    const resp = getForwardIterator(this.responder)
-    const init = this.initiator.createReadStream({ live: true })
+  process () {
+    const resp = this.responderBatch[Symbol.iterator]()
+    const init = this.initiatorBatch[Symbol.iterator]()
 
-    let r = null
-    let batch = []
+    let icount = 0
+    let rcount = 0
 
-    let lseq = 0
-    for await (const l of init) {
-      if ((r?.seq || 0) >= l.remoteLength - 1) {
-        this.prev.initiator++
-        yield l
-        continue
+    let r = resp.next()
+
+    // implies no cosignatures
+    if (r.done) return
+
+    let pendingCommitment = null
+    const batch = []
+
+    for (const l of init) {
+      icount++
+
+      if (r.value.seq >= l.data.remoteLength - 1) {
+        batch.push(l)
+
+        if (l.data.commitment) {
+          pendingCommitment = l
+        } else {
+          continue
+        }
+      }
+
+      // protocol dictates that commitment immediately follows
+      if (pendingCommitment) {
+        pendingCommitment = null
+
+        if (r.value.data.remoteLength - 1 === l.seq && r.value.data.commitment) {
+          while (batch.length) {
+            this.push(batch.shift())
+          }
+
+          this.initiatorBatch = this.initiatorBatch.slice(icount)
+          this.responderBatch = this.responderBatch.slice(rcount)
+
+          return this.process()
+        }
       }
 
       // keep looping until we reach head
-      while (true) {
-        r = await resp.next()
+      while (!r.done && r.value.data.remoteLength <= l.seq + 1) {
+        rcount++
+
+        r = resp.next()
         batch.push(r.value)
-
-        if (r.value.commitment) {
-          while (batch.length) {
-            this.prev.responder++
-            yield batch.shift()
-          }
-        }
-
-        // latest is elsewhere
-        if (r.seq === l.remoteLength - 1) break
-        if (r.seq === this.responder.length - 1) break
-      }
-
-      while (batch.length) {
-        this.prev.responder++
-        yield batch.shift()
-      }
-
-      this.prev.initiator++
-      yield l
-    }
-  }
-
-  async next (prev = this.prev) {
-    const init = getReverseIterator(this.initiator, prev.initiator)
-    const resp = getReverseIterator(this.responder, prev.responder)
-
-    const batch = []
-    const heads = [[], []]
-
-    let l = await init.next()
-    let r = await resp.next()
-
-    while (!l.done || !r.done) {
-      const lstop = (r.value?.remoteLength || 0) - 1
-      const rstop = (l.value?.remoteLength || 0) - 1
-
-      const [left, right] = heads
-
-      // keep going back until we get to last seen length
-      while (!l.done && l.seq > lstop) {
-        left.push({
-          value: l.value,
-          seq: l.seq,
-          remote: this.isInitiator
-        })
-        l = await init.next()
-      }
-
-      // keep going back until we get to last seen length
-      while (!r.done && r.seq > rstop) {
-        right.push({
-          value: r.value,
-          seq: r.seq,
-          remote: !this.isInitiator
-        })
-        r = await resp.next()
-      }
-
-      // initiator first
-      if (!this.isInitiator) heads.reverse()
-      for (const head of heads) {
-        while (head.length) batch.push(head.shift())
-      }
-    }
-
-    return batch
-  }
-
-  clock () {
-    const start = {
-      local: this.local.length,
-      remote: this.remote.length
-    }
-  }
-}
-
-function getForwardIterator (feed, start, opts) {
-  let seq = feed.length
-  const str = feed.createReadStream({ start, live: true })
-  const ite = str[Symbol.asyncIterator]()
-
-  return {
-    async next () {
-      return {
-        ...(await ite.next()),
-        seq: this.done ? seq : seq++,
-      }
-    }
-  }
-}
-
-function getReverseIterator (feed, start, opts) {
-  let seq = feed.length
-  return {
-    async next () {
-      if (seq <= start || seq === 0) return { value: null, done: true }
-      const value = await feed.get(--seq)
-      return {
-        value,
-        seq,
-        done: false
       }
     }
   }

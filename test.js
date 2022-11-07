@@ -1,6 +1,6 @@
 const RAM = require('random-access-memory')
 const Hypercore = require('hypercore')
-const Autochannel = require('./autochannel')
+const Autochannel = require('./')
 
 // range()
 main().then(() => console.log('finished')).catch(console.log)
@@ -35,47 +35,51 @@ async function main () {
 
   const end = start()
 
-  await a.append(ai++)
-  await a.append(ai++)
-  await a.append(ai++)
-  await a.append(ai++)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
 
   await new Promise(r => setTimeout(r, 1000))
 
-  await b.append(bi++)
-  await b.append(bi++)
-  await b.append(bi++)
+  await b.append(bi++, false)
+  await b.append(bi++, false)
+  await b.append(bi++, false)
 
-  await b.append(bi++)
+  await b.append(bi++, false)
   await b.append(bi++, true)
-  await b.append(bi++)
+  await b.append(bi++, false)
 
   await new Promise(r => setTimeout(r, 1000))
 
-  await a.append(ai++)
-  await a.append(ai++)
-  await a.append(ai++)
-  await a.append(ai++)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
+  await a.append(ai++, true)
 
   await new Promise(r => setTimeout(r, 1000))
 
-  await b.append(bi++)
+  console.log('append')
+  await b.append(bi++, true)
+  console.log('append')
 
   await new Promise(r => setTimeout(r, 1000))
+  await a.append(ai++, true)
+  console.log('done', end)
 
-  const ab = await a.next()
-  const bb = await b.next()
+  // const ab = await a.next()
+  // const bb = await b.next()
 
-  console.log(ab)
-  console.log(bb)
+  // console.log(ab)
+  // console.log(bb)
 
-  await end
+  console.log('done')
 
   await new Promise(r => setTimeout(r, 20000))
   async function start () {
     // console.log('starting')
-    startb()
-    for await (const block of a.accepted()) {
+    // startb()
+    for await (const block of a) {
       console.log('----', block)
     }
   }

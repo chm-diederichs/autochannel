@@ -67,11 +67,11 @@ async function main () {
   await a.append(ai++, true)
   console.log('done', end)
 
-  // const ab = await a.next()
-  // const bb = await b.next()
+  const ab = await a.batch()
+  const bb = await b.batch()
 
-  // console.log(ab)
-  // console.log(bb)
+  console.log(ab)
+  console.log(bb)
 
   console.log('done')
 

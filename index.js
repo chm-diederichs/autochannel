@@ -12,8 +12,8 @@ module.exports = class Autochannel extends Readable {
     this.initiator = this.isInitiator ? local : remote
     this.responder = this.isInitiator ? remote : local
 
-    this.batch = []
-    this.pending = []
+    this.initiatorBatch = []
+    this.responderBatch = []
 
     this.prev = {
       initiator: 0,
@@ -42,53 +42,22 @@ module.exports = class Autochannel extends Readable {
     let lseq = 0
     let rseq = 0
 
-    const init = this.initiator.createReadStream({ live: true }) // left
-    const resp = this.responder.createReadStream({ live: true }) // right
+    const init = this.initiator.createReadStream({ live: true })
+    const resp = this.responder.createReadStream({ live: true })
 
-    let left = null
-    let pendingCommitment = null
+    init.on('data', onInitiator.bind(this))
+    resp.on('data', onResponder.bind(this))
 
-    for await (const data of resp) {
-      this.pending.push(({ data, seq: rseq++ }))
+    function onInitiator (data) {
+      // if (data.commitment) this.onCommit(data)
 
-      if (!left) {
-        left = init.read()
+      this.initiatorBatch.push({ data, seq: lseq++ })
+    }
 
-        // no initiator messages
-        if (left === null) continue
+    function onResponder (data) {
+      // if (data.commitment) this.onCommit(data)
 
-        lseq++
-      }
-
-      // check if initiator has seen pending blocks
-      while (this.pending.length) {
-        if (left.remoteLength <= this.pending[0].seq) break
-        this.batch.push(this.pending.shift().data) // use FIFO
-      }
-
-      // catch up on initiators feed
-      while (left.remoteLength <= rseq) {
-        if (left.commitment) pendingCommitment = left
-
-        this.batch.push(left)
-        left = init.read()
-        if (left === null) break
-
-        lseq++
-      }
-
-      // check for cosignature
-      if (pendingCommitment) {
-        pendingCommitment = null
-
-        // currently only valid if the cosign is immediate
-        if (data.remoteLength - 1 !== lseq && data.commitment) {
-          // push all confirmed blocks
-          while (this.batch.length) {
-            this.push(this.batch.shift()) //use FIFO
-          }
-        }
-      }
+      this.responderBatch.push({ data, seq: rseq++ })
     }
   }
 
@@ -102,5 +71,27 @@ module.exports = class Autochannel extends Readable {
     }
 
     return this.local.append(entry)
+  }
+
+  batch () {
+    const batch = []
+
+    const resp = this.responderBatch[Symbol.iterator]()
+    let r = resp.next()
+
+    // initiator controls ordering
+    for (const l of this.initiatorBatch) {
+      if (r.done || r.value.seq >= l.data.remoteLength - 1) {
+        batch.push(l)
+      }
+
+      // keep looping until we reach head
+      while (!r.done && r.value.data.remoteLength <= l.seq + 1) {
+        batch.push(r.value)
+        r = resp.next()
+      }
+    }
+
+    return batch
   }
 }

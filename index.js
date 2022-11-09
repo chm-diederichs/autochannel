@@ -9,16 +9,8 @@ module.exports = class Autochannel extends Readable {
 
     this.isInitiator = Buffer.compare(local.key, remote.key) < 0
 
-    this.initiator = this.isInitiator ? local : remote
-    this.responder = this.isInitiator ? remote : local
-
-    this.initiatorBatch = []
-    this.responderBatch = []
-
-    this.prev = {
-      initiator: 0,
-      responder: 0
-    }
+    this.init = this.isInitiator ? local : remote
+    this.resp = this.isInitiator ? remote : local
   }
 
   async ready () {
@@ -27,10 +19,7 @@ module.exports = class Autochannel extends Readable {
   }
 
   _open (cb) {
-    this._openp().then(() => {
-      console.log('done')
-      cb()
-    }, cb)
+    this._openp().then(cb, cb)
   }
 
   async _openp () {
@@ -39,25 +28,80 @@ module.exports = class Autochannel extends Readable {
   }
 
   async start () {
-    let lseq = 0
-    let rseq = 0
+    let batch = []
 
-    const init = this.initiator.createReadStream({ live: true })
-    const resp = this.responder.createReadStream({ live: true })
-
-    init.on('data', onInitiator.bind(this))
-    resp.on('data', onResponder.bind(this))
-
-    function onInitiator (data) {
-      // if (data.commitment) this.onCommit(data)
-
-      this.initiatorBatch.push({ data, seq: lseq++ })
+    const i = {
+      core: this.init,
+      pending: [],
+      stream: this.init.createReadStream({ live: true }),
+      length: 0
     }
 
-    function onResponder (data) {
-      // if (data.commitment) this.onCommit(data)
+    const r = {
+      core: this.resp,
+      pending: [],
+      stream: this.resp.createReadStream({ live: true }),
+      length: 0
+    }
 
-      this.responderBatch.push({ data, seq: rseq++ })
+    const bumpBound = bump.bind(this)
+
+    i.stream.on('data', function (data) {
+      i.pending.push(data)
+      bumpBound()
+    })
+
+    r.stream.on('data', function (data) {
+      r.pending.push(data)
+      bumpBound()
+    })
+
+    function push (next) {
+      const data = next.pending.shift()
+      next.length++
+      if (!data.op && !data.commitment) return
+      batch.push({ core: next.core, op: data.op, commitment: data.commitment })
+    }
+
+    function bump () {
+      while (i.pending.length) {
+        if (i.pending[0].remoteLength > r.length) {
+          if (r.pending.length) {
+            push(r)
+            continue
+          }
+          break
+        }
+
+        push(i)
+      }
+
+      // if (batch.length) await this.process(batch)
+
+      while (batch.length) this.push(batch.shift().op)
+
+      if (r.pending.length && r.pending[0].remoteLength > i.length) {
+        // r.stream.pause()
+        // i.stream.resume() // if not backpressued
+        return
+      }
+      if (i.pending.length && i.pending[0].remoteLength > r.length) {
+        // i.stream.pause()
+        // r.stream.resume() // if not backpressued
+        return
+      }
+
+      // i.stream.resume()
+      // r.stream.resume()
+
+      if (r.pending.length && i.core.writable && i.core.length === i.length) {
+        // append ack
+        i.core.append({
+          op: null,
+          commitment: null,
+          remoteLength: r.length + r.pending.length
+        })
+      }
     }
   }
 
@@ -71,27 +115,5 @@ module.exports = class Autochannel extends Readable {
     }
 
     return this.local.append(entry)
-  }
-
-  batch () {
-    const batch = []
-
-    const resp = this.responderBatch[Symbol.iterator]()
-    let r = resp.next()
-
-    // initiator controls ordering
-    for (const l of this.initiatorBatch) {
-      if (r.done || r.value.seq >= l.data.remoteLength - 1) {
-        batch.push(l)
-      }
-
-      // keep looping until we reach head
-      while (!r.done && r.value.data.remoteLength <= l.seq + 1) {
-        batch.push(r.value)
-        r = resp.next()
-      }
-    }
-
-    return batch
   }
 }

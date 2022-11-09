@@ -28,12 +28,12 @@ async function main () {
   const b = new Autochannel(bl, br)
 
   replicate(al, br)
-  replicate(ar, bl)
+  replicate(bl, ar)
 
   let ai = 0
   let bi = 0
 
-  const end = start()
+  a.on('data', data => console.log('a', data))
 
   await a.append(ai++, true)
   await a.append(ai++, true)
@@ -42,12 +42,12 @@ async function main () {
 
   await new Promise(r => setTimeout(r, 1000))
 
+  await b.append(bi++, true)
   await b.append(bi++, false)
   await b.append(bi++, false)
   await b.append(bi++, false)
 
   await b.append(bi++, false)
-  await b.append(bi++, true)
   await b.append(bi++, false)
 
   await new Promise(r => setTimeout(r, 1000))
@@ -65,15 +65,8 @@ async function main () {
 
   await new Promise(r => setTimeout(r, 1000))
   await a.append(ai++, true)
-  console.log('done', end)
 
-  const ab = await a.batch()
-  const bb = await b.batch()
-
-  console.log(ab)
-  console.log(bb)
-
-  console.log('done')
+  b.on('data', data => console.log('b', data))
 
   await new Promise(r => setTimeout(r, 20000))
   async function start () {

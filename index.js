@@ -1,25 +1,27 @@
 const { Readable } = require('streamx')
 
 module.exports = class Autochannel extends Readable {
-  constructor (local, remote, opts = {}) {
+  constructor (cores, opts = {}) {
     super(opts)
 
-    this.local = local
-    this.remote = remote
+    this.cores = cores
+    this.cores.sort((a, b) => Buffer.compare(a.key, b.key))
 
-    this.isInitiator = Buffer.compare(local.key, remote.key) < 0
-
-    this.init = this.isInitiator ? local : remote
-    this.resp = this.isInitiator ? remote : local
+    this.writers = this.cores.map(createWriter)
+    this.local = this.cores.find(c => c.writable)
   }
 
   async ready () {
-    await this.local.ready()
-    await this.remote.ready()
+    await Promise.all(this.cores.map(c => c.ready()))
   }
 
   _open (cb) {
     this._openp().then(cb, cb)
+  }
+
+  async addCore (core) {
+    await core.ready()
+    this.cores.push(core)
   }
 
   async _openp () {
@@ -27,30 +29,16 @@ module.exports = class Autochannel extends Readable {
 
     let batch = []
 
-    const i = {
-      core: this.init,
-      pending: [],
-      stream: this.init.createReadStream({ live: true }),
-      length: 0
-    }
-
-    const r = {
-      core: this.resp,
-      pending: [],
-      stream: this.resp.createReadStream({ live: true }),
-      length: 0
-    }
-
     const bumpBound = bump.bind(this)
+    const compareBound = compare.bind(this)
 
-    i.stream.on('data', function (data) {
-      i.pending.push(data)
-      bumpBound()
-    })
+    this.writers.map(w => w.start())
 
-    r.stream.on('data', function (data) {
-      r.pending.push(data)
-      bumpBound()
+    this.writers.forEach(w => {
+      w.stream.on('data', function (data) {
+        w.pending.push(data)
+        bumpBound()
+      })
     })
 
     function push (next) {
@@ -61,20 +49,30 @@ module.exports = class Autochannel extends Readable {
     }
 
     function bump () {
+      const writers = [...this.writers]
+      const lead = writers.shift()
+
+      compareBound(lead, writers)
+    }
+
+    function compare (i, writers) {
+      if (!writers.length) return push(i)
+
+      const r = writers.shift()
+
       while (i.pending.length) {
         if (i.pending[0].remoteLength > r.length) {
           if (r.pending.length) {
-            push(r)
+            compareBound(r, writers.slice())
             continue
           }
           break
         }
 
-        push(i)
+        compareBound(i, writers.slice(1))
       }
 
-      // if (batch.length) await this.process(batch)
-
+      // if (batch.length) await this.onBatch(batch)
       while (batch.length) this.push(batch.shift().op)
 
       if (r.pending.length && r.pending[0].remoteLength > i.length) {
@@ -82,6 +80,7 @@ module.exports = class Autochannel extends Readable {
         // i.stream.resume() // if not backpressued
         return
       }
+
       if (i.pending.length && i.pending[0].remoteLength > r.length) {
         // i.stream.pause()
         // r.stream.resume() // if not backpressued
@@ -96,21 +95,37 @@ module.exports = class Autochannel extends Readable {
         i.core.append({
           op: null,
           commitment: null,
-          remoteLength: r.length + r.pending.length
+          remoteLength: r.length + r.pending.length // 71
         })
       }
     }
   }
 
   async append (op, commitment) {
-    const remoteLength = this.remote.length
+    const remoteLength = []
+    this.cores.forEach(core => {
+      if (core.writable) return
+      remoteLength.push(core.length)
+    })
 
     const entry = {
       op,
       commitment,
-      remoteLength
+      remoteLength: remoteLength.pop()
     }
 
     return this.local.append(entry)
+  }
+}
+
+function createWriter (core) {
+  return {
+    core: core,
+    pending: [],
+    stream: null,
+    length: 0,
+    start () {
+      this.stream = core.createReadStream({ live: true })
+    }
   }
 }

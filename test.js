@@ -89,7 +89,7 @@ async function multimain () {
 
   const a = new Autochannel([al, br, cr])
   const b = new Autochannel([bl, ar, cr])
-  const c = new Autochannel([cl, br, cr])
+  const c = new Autochannel([cl, ar, br])
 
   replicate(al, ar)
   replicate(bl, br)

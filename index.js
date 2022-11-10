@@ -76,17 +76,18 @@ module.exports = class Autochannel extends Readable {
 
         push(init)
 
-        // if (r.pending.length && r.pending[0].remoteLength[pos + 1] > i.length) {
-        //   // r.stream.pause()
-        //   // i.stream.resume() // if not backpressued
-        //   continue
-        // }
 
-        // if (i.pending.length && i.pending[0].remoteLength[pos + 1] > r.length) {
-        //   // i.stream.pause()
-        //   // r.stream.resume() // if not backpressued
-        //   continue
-        // }
+        if (shouldResume(i)) {
+          // r.stream.pause()
+          // i.stream.resume() // if not backpressued
+          continue
+        }
+
+        if (shouldPause(i)) {
+          // i.stream.pause()
+          // r.stream.resume() // if not backpressued
+          continue
+        }
       }
 
       if (batch.length) onBatch(batch)
@@ -106,6 +107,37 @@ module.exports = class Autochannel extends Readable {
           remoteLength: getClock(writers)
         })
       }
+    }
+
+    // returns true if we need more blocks from this writer
+    function shouldResume (i) {
+      const writer = writers[i]
+
+      let minLength = Number.MAX_SAFE_INTEGER
+      const pending = writers.reduce((acc, w, idx) => {
+        if (idx <= i || !w.pending.length) return acc
+
+        minLength = Math.min(minLength, w.pending[0].remoteLength[i])
+        return true
+      }, false)
+
+      // there are pending blocks that cannot be ordered
+      return pending && minLength > writer.length
+    }
+
+    // returns true if this writer is too far ahead
+    function shouldPause (i) {
+      const writer = writers[i]
+
+      if (!writer.pending.length) return false
+
+      const clock = writer.pending[0].remoteLength
+
+      // clock references blocks that haven't been ordered yet
+      return clock.reduce((acc, len, idx) => {
+        if (idx <= i) return acc
+        return acc || len > writers[idx].length
+      }, false)
     }
   }
 

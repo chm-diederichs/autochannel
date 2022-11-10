@@ -33,7 +33,7 @@ async function main () {
   let ai = 0
   let bi = 0
 
-  a.on('data', data => console.log('a', data))
+  const end = read('a', a)
 
   await a.append(`a${ai++}`, true)
   await a.append(`a${ai++}`, true)
@@ -59,30 +59,12 @@ async function main () {
 
   await new Promise(r => setTimeout(r, 1000))
 
-  console.log('append')
   await b.append(bi++, true)
-  console.log('append')
 
   await new Promise(r => setTimeout(r, 1000))
   await a.append(ai++, true)
 
   b.on('data', data => console.log('b', data))
-
-  await new Promise(r => setTimeout(r, 20000))
-  async function start () {
-    // console.log('starting')
-    // startb()
-    for await (const block of a) {
-      console.log('----', block)
-    }
-  }
-
-  async function startb () {
-    // console.log('starting')
-    for await (const block of b.accepted()) {
-      // console.log('----', block)
-    }
-  }
 }
 
 async function multimain () {
@@ -107,7 +89,7 @@ async function multimain () {
 
   const a = new Autochannel([al, br, cr])
   const b = new Autochannel([bl, ar, cr])
-  const c = new Autochannel([cl, ar, br])
+  const c = new Autochannel([cl, br, cr])
 
   replicate(al, ar)
   replicate(bl, br)
@@ -117,7 +99,11 @@ async function multimain () {
   let bi = 0
   let ci = 0
 
-  a.on('data', data => console.log('a', data))
+  const order = []
+
+  a.on('data', data => { order.push(data) })
+
+  const end = read('a', a)
 
   await a.append(`a${ai++}`, true)
   await a.append(`a${ai++}`, true)
@@ -139,6 +125,8 @@ async function multimain () {
   await b.append(`b${bi++}`, false)
   await b.append(`b${bi++}`, false)
 
+  await new Promise(r => setTimeout(r, 1000))
+
   await c.append(`c${ci++}`, false)
 
   await new Promise(r => setTimeout(r, 1000))
@@ -150,30 +138,24 @@ async function multimain () {
 
   await new Promise(r => setTimeout(r, 1000))
 
-  console.log('append')
-  await b.append(bi++, true)
-  console.log('append')
+  await b.append(`b${bi++}`, true)
 
   await new Promise(r => setTimeout(r, 1000))
-  await a.append(ai++, true)
+  await a.append(`a${ai++}`, true)
 
-  b.on('data', data => console.log('b', data))
-
-  await new Promise(r => setTimeout(r, 20000))
-  async function start () {
-    // console.log('starting')
-    // startb()
-    for await (const block of a) {
-      console.log('----', block)
-    }
+  let i = 0
+  for await (const data of b) {
+    if (data !== order[i++]) throw new Error('Bad order B')
+    if (i === order.length) break
   }
 
-  async function startb () {
-    // console.log('starting')
-    for await (const block of b.accepted()) {
-      // console.log('----', block)
-    }
+  i = 0
+  for await (const data of c) {
+    if (data !== order[i++]) throw new Error('Bad order C' + i)
+    if (i === order.length) break
   }
+
+  console.log('passed')
 }
 
 async function replicate (a, b) {
@@ -181,4 +163,9 @@ async function replicate (a, b) {
   const bs = b.replicate(false)
 
   as.pipe(bs).pipe(as)
+}
+
+async function read (label, channel) {
+  for await (const block of channel) {
+  }
 }

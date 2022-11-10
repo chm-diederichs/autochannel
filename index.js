@@ -49,9 +49,7 @@ module.exports = class Autochannel extends Readable {
 
     function push (next) {
       const data = next.pending.shift()
-      if (!data) return
       next.length++
-      // console.log(data)
       if (!data.op && !data.commitment) return
       batch.push({ core: next.core, op: data.op, commitment: data.commitment })
     }

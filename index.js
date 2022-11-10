@@ -24,10 +24,7 @@ module.exports = class Autochannel extends Readable {
 
   async _openp () {
     await this.ready()
-    this.start()
-  }
 
-  async start () {
     let batch = []
 
     const i = {

@@ -64,27 +64,22 @@ module.exports = class Autochannel extends Readable {
 
           const remoteLength = init.pending[0].remoteLength[r - 1]
           if (remoteLength > resp.length) {
-            if (resp.pending.length) {
-              bump(r, remoteLength)
-              continue
-            }
-            break
+            return bump(r, remoteLength)
           }
         }
 
         push(init)
 
-
         if (shouldResume(i)) {
           // r.stream.pause()
           // i.stream.resume() // if not backpressued
-          continue
+          // continue
         }
 
         if (shouldPause(i)) {
           // i.stream.pause()
           // r.stream.resume() // if not backpressued
-          continue
+          // continue
         }
       }
 
@@ -105,6 +100,8 @@ module.exports = class Autochannel extends Readable {
           remoteLength: getClock(writers)
         })
       }
+
+      return true
     }
 
     // returns true if we need more blocks from this writer

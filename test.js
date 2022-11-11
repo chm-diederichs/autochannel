@@ -3,7 +3,7 @@ const Hypercore = require('hypercore')
 const Autochannel = require('./')
 
 // range()
-multimain().then(() => console.log('finished')).catch(console.log)
+multichaos().then(() => console.log('finished')).catch(console.log)
 
 async function main () {
   const cores = [
@@ -198,14 +198,13 @@ async function multichaos () {
 
   a.on('data', data => { order.push(data) })
 
-  while (a.local.length < 100) {
+  while (ai < 100) {
     if (Math.random() < 0.7) await new Promise(r => setTimeout(r, 500))
     for (let i = 0; i < Math.random() * 10; i++) await a.append(`a${ai++}`)
     for (let i = 0; i < Math.random() * 10; i++) await b.append(`b${bi++}`)
     for (let i = 0; i < Math.random() * 10; i++) await c.append(`c${ci++}`)
   }
 
-  await new Promise(r => setTimeout(r, 2000))
 
   let i = 0
   for await (const data of b) {
@@ -215,11 +214,15 @@ async function multichaos () {
     if (i === order.length) break
   }
 
-  // i = 0
-  // for await (const data of c) {
-  //   if (data !== order[i++]) throw new Error('Bad order C' + i)
-  //   if (i === order.length) break
-  // }
+  await new Promise(r => setTimeout(r, 1000))
+
+  i = 0
+  for await (const data of c) {
+    if (data !== order[i++]) throw new Error('Bad order C' + i)
+    if (i === order.length) break
+  }
+
+  await new Promise(r => setTimeout(r, 1000))
 
   console.log('passed')
 }

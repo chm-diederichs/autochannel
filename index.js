@@ -64,7 +64,10 @@ module.exports = class Autochannel extends Readable {
 
           const remoteLength = init.pending[0].remoteLength[r - 1]
           if (remoteLength > resp.length) {
-            return bump(r, remoteLength)
+            if (resp.pending.length) {
+              bump(r, remoteLength)
+            }
+            return
           }
         }
 
@@ -92,7 +95,10 @@ module.exports = class Autochannel extends Readable {
         return acc || w.pending.length > 0
       }, false)
 
-      if (pending && init.core.writable && init.core.length === init.length) {
+      // no need to ack
+      if (stop || !pending) return
+
+      if (init.core.writable && init.core.length === init.length) {
         // append ack
         init.core.append({
           op: null,
@@ -100,8 +106,6 @@ module.exports = class Autochannel extends Readable {
           remoteLength: getClock(writers)
         })
       }
-
-      return true
     }
 
     // returns true if we need more blocks from this writer

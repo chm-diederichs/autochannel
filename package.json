@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/chm-diederichs/autochannel#readme",
   "devDependencies": {
+    "brittle": "^3.1.1",
     "hypercore": "^10.4.1",
     "random-access-memory": "^6.0.0",
     "standard": "^16.0.4"

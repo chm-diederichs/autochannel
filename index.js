@@ -21,6 +21,11 @@ module.exports = class Autochannel extends Readable {
     await Promise.all(this.cores.map(c => c.ready()))
   }
 
+  _read (cb) {
+    this.bump()
+    cb()
+  }
+
   _open (cb) {
     this._openp().then(cb, cb)
   }
@@ -37,6 +42,8 @@ module.exports = class Autochannel extends Readable {
 
     const writers = this.writers
     const onBatch = this.onBatch.bind(this)
+
+    this.bump = () => bump()
 
     this.writers.map(w => w.start())
 

@@ -12,7 +12,7 @@ module.exports = class Autochannel extends Readable {
     this.init = this.isInitiator ? local : remote
     this.resp = this.isInitiator ? remote : local
 
-    this.onBatch = opts.onBatch || pushAll.bind(this)
+    this.onBatch = opts.onBatch || noop
   }
 
   async ready () {
@@ -76,6 +76,7 @@ module.exports = class Autochannel extends Readable {
       }
 
       if (batch.length) this.onBatch(batch)
+      while (batch.length) this.push(batch.shift().op)
 
       if (r.pending.length && r.pending[0].remoteLength > i.length) {
         // r.stream.pause()
@@ -115,6 +116,4 @@ module.exports = class Autochannel extends Readable {
   }
 }
 
-function pushAll (batch) {
-  while (batch.length) this.push(batch.shift().op)
-}
+function noop () {}
